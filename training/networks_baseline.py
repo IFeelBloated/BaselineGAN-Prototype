@@ -116,16 +116,23 @@ class Generator(nn.Module):
         MainLayers = [GeneratorStage(NoiseDimension, WidthPerStage[0], CardinalityPerStage[0], BlocksPerStage[0], ExpansionFactor, KernelSize)]
         MainLayers += [GeneratorStage(WidthPerStage[x], WidthPerStage[x + 1], CardinalityPerStage[x + 1], BlocksPerStage[x + 1], ExpansionFactor, KernelSize, ResamplingFilter) for x in range(len(WidthPerStage) - 1)]
         
+        AggregationLayers = [MSRInitializer(nn.Conv2d(WidthPerStage[0], 3, kernel_size=1, stride=1, padding=0, bias=False))]
+        AggregationLayers += [MSRInitializer(nn.Conv2d(WidthPerStage[x + 1], 3, kernel_size=1, stride=1, padding=0, bias=False), ActivationGain=0) for x in range(len(WidthPerStage) - 1)]
+        
         self.MainLayers = nn.ModuleList(MainLayers)
-        self.AggregationLayer = MSRInitializer(nn.Conv2d(WidthPerStage[-1], 3, kernel_size=1, stride=1, padding=0, bias=False))
+        self.AggregationLayers = nn.ModuleList(AggregationLayers)
+        self.Resampler = InterpolativeUpsampler(ResamplingFilter)
         
         self.z_dim = NoiseDimension
         
     def forward(self, x):
-        for Layer in self.MainLayers:
-            x = Layer(x)
+        AggregatedOutput = None
         
-        return self.AggregationLayer(x)
+        for Layer, Aggregate in zip(self.MainLayers, self.AggregationLayers):
+            x = Layer(x)
+            AggregatedOutput = self.Resampler(AggregatedOutput) + Aggregate(x) if AggregatedOutput is not None else Aggregate(x)
+        
+        return AggregatedOutput
     
 class Discriminator(nn.Module):
     def __init__(self, WidthPerStage, CardinalityPerStage, BlocksPerStage, ExpansionFactor, KernelSize=3, ResamplingFilter=[1, 2, 1]):
