@@ -50,9 +50,9 @@ class StyleGAN2Loss():
     def accumulate_gradients(self, phase, real_img, gen_z, gain, cur_nimg):
         blur_sigma = max(1 - cur_nimg / (self.blur_fade_kimg * 1e3), 0) * self.blur_init_sigma if self.blur_fade_kimg > 0 else 0
 
-        # Gmain
-        if phase == 'Gmain':
-            with torch.autograd.profiler.record_function('Gmain_forward'):
+        # G
+        if phase == 'G':
+            with torch.autograd.profiler.record_function('G_forward'):
                 gen_img = self.run_G(gen_z)
                 gen_logits = self.run_D(gen_img, blur_sigma=blur_sigma)
                 real_logits = self.run_D(real_img.detach(), blur_sigma=blur_sigma)
@@ -64,15 +64,19 @@ class StyleGAN2Loss():
                 loss_Gmain = torch.nn.functional.softplus(-relativistic_logits)
                 training_stats.report('Loss/G/loss', loss_Gmain)
                 
-            with torch.autograd.profiler.record_function('Gmain_backward'):
+            with torch.autograd.profiler.record_function('G_backward'):
                 loss_Gmain.mean().mul(gain).backward()
 
-        # Dmain
-        if phase == 'Dmain':
-            with torch.autograd.profiler.record_function('Dmain_forward'):
+        # D
+        if phase == 'D':
+            with torch.autograd.profiler.record_function('D_forward'):
                 gen_img = self.run_G(gen_z)
-                gen_logits = self.run_D(gen_img.detach(), blur_sigma=blur_sigma, update_emas=True)
-                real_logits = self.run_D(real_img.detach(), blur_sigma=blur_sigma)
+                gen_img_tmp = gen_img.detach().requires_grad_(True)
+                gen_logits = self.run_D(gen_img_tmp, blur_sigma=blur_sigma)
+                
+                real_img_tmp = real_img.detach().requires_grad_(True)
+                real_logits = self.run_D(real_img_tmp, blur_sigma=blur_sigma)
+                
                 relativistic_logits = real_logits - gen_logits
                 
                 training_stats.report('Loss/scores/real', relativistic_logits)
@@ -81,40 +85,24 @@ class StyleGAN2Loss():
                 loss_Dmain = torch.nn.functional.softplus(-relativistic_logits)
                 training_stats.report('Loss/D/loss', loss_Dmain)
                 
-            with torch.autograd.profiler.record_function('Dgen_backward'):
-                loss_Dmain.mean().mul(gain).backward()
-                
-        # Dr1: Apply R1 regularization.
-        if phase == 'Dr1':
-            with torch.autograd.profiler.record_function('Dr1_forward'):
-                real_img_tmp = real_img.detach().requires_grad_(True)
-                real_logits = self.run_D(real_img_tmp, blur_sigma=blur_sigma)
-
                 with torch.autograd.profiler.record_function('r1_grads'), conv2d_gradfix.no_weight_gradients():
                     r1_grads = torch.autograd.grad(outputs=[real_logits.sum()], inputs=[real_img_tmp], create_graph=True, only_inputs=True)[0]
                 r1_penalty = r1_grads.square().sum([1,2,3])
                 loss_Dr1 = r1_penalty * (self.r1_gamma / 2)
                 training_stats.report('Loss/r1_penalty', r1_penalty)
                 training_stats.report('Loss/D/r1_reg', loss_Dr1)
-
-            with torch.autograd.profiler.record_function('Dr1_backward'):
-                loss_Dr1.mean().mul(gain).backward()
                 
-        # Dr2: Apply R2 regularization.
-        if phase == 'Dr2':
-            with torch.autograd.profiler.record_function('Dr2_forward'):
-                gen_img = self.run_G(gen_z)
-                gen_img_tmp = gen_img.detach().requires_grad_(True)
-                gen_logits = self.run_D(gen_img_tmp, blur_sigma=blur_sigma)
-                    
                 with torch.autograd.profiler.record_function('r2_grads'), conv2d_gradfix.no_weight_gradients():
                     r2_grads = torch.autograd.grad(outputs=[gen_logits.sum()], inputs=[gen_img_tmp], create_graph=True, only_inputs=True)[0] 
                 r2_penalty = r2_grads.square().sum([1,2,3])
                 loss_Dr2 = r2_penalty * (self.r2_gamma / 2)
                 training_stats.report('Loss/r2_penalty', r2_penalty)
                 training_stats.report('Loss/D/r2_reg', loss_Dr2)
-
-            with torch.autograd.profiler.record_function('Dr2_backward'):
-                loss_Dr2.mean().mul(gain).backward()
-
+                
+                loss_D = loss_Dmain + loss_Dr1 + loss_Dr2
+                
+            with torch.autograd.profiler.record_function('D_backward'):
+                loss_D.mean().mul(gain).backward()
+                
+                
 #----------------------------------------------------------------------------

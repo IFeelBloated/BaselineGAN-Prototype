@@ -106,7 +106,7 @@ def training_loop(
     ema_kimg                = 10,       # Half-life of the exponential moving average (EMA) of generator weights.
     ema_rampup              = 0.05,     # EMA ramp-up coefficient. None = no rampup.
     G_reg_interval          = None,     # How often to perform regularization for G? None = disable lazy regularization.
-    D_reg_interval          = 8,        # How often to perform regularization for D? None = disable lazy regularization.
+    D_reg_interval          = None,     # How often to perform regularization for D? None = disable lazy regularization.
     augment_p               = 0,        # Initial value of augmentation probability.
     ada_target              = None,     # ADA target value. None = fixed p.
     ada_interval            = 4,        # How often to perform ADA adjustment?
@@ -192,17 +192,11 @@ def training_loop(
     loss = dnnlib.util.construct_class_by_name(device=device, G=G, D=D, augment_pipe=augment_pipe, **loss_kwargs) # subclass of training.loss.Loss
     phases = []
     
-    mb_ratio = D_reg_interval / (D_reg_interval + 2)
-    opt_kwargs = dnnlib.EasyDict(D_opt_kwargs)
-    opt_kwargs.lr = opt_kwargs.lr * mb_ratio
-    opt_kwargs.betas = [beta ** mb_ratio for beta in opt_kwargs.betas]
-    opt = dnnlib.util.construct_class_by_name(D.parameters(), **opt_kwargs)
-    phases += [dnnlib.EasyDict(name='Dmain', module=D, opt=opt, interval=1, shift=0)]
-    phases += [dnnlib.EasyDict(name='Dr1', module=D, opt=opt, interval=D_reg_interval, shift=0)]
-    phases += [dnnlib.EasyDict(name='Dr2', module=D, opt=opt, interval=D_reg_interval, shift=D_reg_interval // 2)]
+    opt = dnnlib.util.construct_class_by_name(params=D.parameters(), **D_opt_kwargs)
+    phases += [dnnlib.EasyDict(name='D', module=D, opt=opt, interval=1, shift=0)]
     
     opt = dnnlib.util.construct_class_by_name(params=G.parameters(), **G_opt_kwargs)
-    phases += [dnnlib.EasyDict(name='Gmain', module=G, opt=opt, interval=1, shift=0)]
+    phases += [dnnlib.EasyDict(name='G', module=G, opt=opt, interval=1, shift=0)]
     
     for phase in phases:
         phase.start_event = None
@@ -269,19 +263,11 @@ def training_loop(
             all_real_img = []
             all_gen_z = []
             
-            # Dmain
+            # D
             all_real_img += [(D_img.detach().clone().to(device).to(torch.float32) / 127.5 - 1).split(batch_gpu)]
             all_gen_z += [D_z.detach().clone().split(batch_gpu)]
             
-            # Dr1
-            all_real_img += [(D_img.detach().clone().to(device).to(torch.float32) / 127.5 - 1).split(batch_gpu)]
-            all_gen_z += [D_z.detach().clone().split(batch_gpu)]
-            
-            # Dr2
-            all_real_img += [(D_img.detach().clone().to(device).to(torch.float32) / 127.5 - 1).split(batch_gpu)]
-            all_gen_z += [D_z.detach().clone().split(batch_gpu)]
-            
-            # Gmain
+            # G
             all_real_img += [(G_img.detach().clone().to(device).to(torch.float32) / 127.5 - 1).split(batch_gpu)]
             all_gen_z += [G_z.detach().clone().split(batch_gpu)]
             
