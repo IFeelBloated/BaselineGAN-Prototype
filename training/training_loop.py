@@ -102,11 +102,12 @@ def training_loop(
     num_gpus                = 1,        # Number of GPUs participating in the training.
     rank                    = 0,        # Rank of the current process in [0, num_gpus[.
     batch_size              = 4,        # Total batch size for one training iteration. Can be larger than batch_gpu * num_gpus.
-    batch_gpu               = 4,        # Number of samples processed at a time by one GPU.
+    g_batch_gpu             = 4,        # Number of samples processed at a time by one GPU.
+    d_batch_gpu             = 4,        # Number of samples processed at a time by one GPU.
     ema_kimg                = 10,       # Half-life of the exponential moving average (EMA) of generator weights.
     ema_rampup              = 0.05,     # EMA ramp-up coefficient. None = no rampup.
     G_reg_interval          = None,     # How often to perform regularization for G? None = disable lazy regularization.
-    D_reg_interval          = 8,        # How often to perform regularization for D? None = disable lazy regularization.
+    D_reg_interval          = None,     # How often to perform regularization for D? None = disable lazy regularization.
     augment_p               = 0,        # Initial value of augmentation probability.
     ada_target              = None,     # ADA target value. None = fixed p.
     ada_interval            = 4,        # How often to perform ADA adjustment?
@@ -163,7 +164,7 @@ def training_loop(
 
     # Print network summary tables.
     if rank == 0:
-        z = torch.empty([batch_gpu, G.z_dim], device=device)
+        z = torch.empty([min(g_batch_gpu, d_batch_gpu), G.z_dim], device=device)
         img = misc.print_module_summary(G, [z])
         misc.print_module_summary(D, [img])
 
@@ -192,17 +193,11 @@ def training_loop(
     loss = dnnlib.util.construct_class_by_name(device=device, G=G, D=D, augment_pipe=augment_pipe, **loss_kwargs) # subclass of training.loss.Loss
     phases = []
     
-    mb_ratio = D_reg_interval / (D_reg_interval + 2)
-    opt_kwargs = dnnlib.EasyDict(D_opt_kwargs)
-    opt_kwargs.lr = opt_kwargs.lr * mb_ratio
-    opt_kwargs.betas = [beta ** mb_ratio for beta in opt_kwargs.betas]
-    opt = dnnlib.util.construct_class_by_name(D.parameters(), **opt_kwargs)
-    phases += [dnnlib.EasyDict(name='Dmain', module=D, opt=opt, interval=1, shift=0)]
-    phases += [dnnlib.EasyDict(name='Dr1', module=D, opt=opt, interval=D_reg_interval, shift=0)]
-    phases += [dnnlib.EasyDict(name='Dr2', module=D, opt=opt, interval=D_reg_interval, shift=D_reg_interval // 2)]
+    opt = dnnlib.util.construct_class_by_name(params=D.parameters(), **D_opt_kwargs)
+    phases += [dnnlib.EasyDict(name='D', module=D, opt=opt, interval=1, shift=0, batch_gpu=d_batch_gpu)]
     
     opt = dnnlib.util.construct_class_by_name(params=G.parameters(), **G_opt_kwargs)
-    phases += [dnnlib.EasyDict(name='Gmain', module=G, opt=opt, interval=1, shift=0)]
+    phases += [dnnlib.EasyDict(name='G', module=G, opt=opt, interval=1, shift=0, batch_gpu=g_batch_gpu)]
     
     for phase in phases:
         phase.start_event = None
@@ -218,7 +213,7 @@ def training_loop(
         print('Exporting sample images...')
         grid_size, images, labels = setup_snapshot_image_grid(training_set=training_set)
         save_image_grid(images, os.path.join(run_dir, 'reals.png'), drange=[0,255], grid_size=grid_size)
-        grid_z = torch.randn([labels.shape[0], G.z_dim], device=device).split(batch_gpu)
+        grid_z = torch.randn([labels.shape[0], G.z_dim], device=device).split(g_batch_gpu)
         images = torch.cat([G_ema(z).cpu() for z in grid_z]).numpy()
         save_image_grid(images, os.path.join(run_dir, 'fakes_init.png'), drange=[-1,1], grid_size=grid_size)
 
@@ -269,21 +264,13 @@ def training_loop(
             all_real_img = []
             all_gen_z = []
             
-            # Dmain
-            all_real_img += [(D_img.detach().clone().to(device).to(torch.float32) / 127.5 - 1).split(batch_gpu)]
-            all_gen_z += [D_z.detach().clone().split(batch_gpu)]
+            # D
+            all_real_img += [(D_img.detach().clone().to(device).to(torch.float32) / 127.5 - 1).split(d_batch_gpu)]
+            all_gen_z += [D_z.detach().clone().split(d_batch_gpu)]
             
-            # Dr1
-            all_real_img += [(D_img.detach().clone().to(device).to(torch.float32) / 127.5 - 1).split(batch_gpu)]
-            all_gen_z += [D_z.detach().clone().split(batch_gpu)]
-            
-            # Dr2
-            all_real_img += [(D_img.detach().clone().to(device).to(torch.float32) / 127.5 - 1).split(batch_gpu)]
-            all_gen_z += [D_z.detach().clone().split(batch_gpu)]
-            
-            # Gmain
-            all_real_img += [(G_img.detach().clone().to(device).to(torch.float32) / 127.5 - 1).split(batch_gpu)]
-            all_gen_z += [G_z.detach().clone().split(batch_gpu)]
+            # G
+            all_real_img += [(G_img.detach().clone().to(device).to(torch.float32) / 127.5 - 1).split(g_batch_gpu)]
+            all_gen_z += [G_z.detach().clone().split(g_batch_gpu)]
             
             
         # Execute training phases.
@@ -297,7 +284,7 @@ def training_loop(
             phase.opt.zero_grad(set_to_none=True)
             phase.module.requires_grad_(True)
             for real_img, gen_z in zip(phase_real_img, phase_gen_z):
-                loss.accumulate_gradients(phase=phase.name, real_img=real_img, gen_z=gen_z, gain=phase.interval * num_gpus * batch_gpu / batch_size, cur_nimg=cur_nimg)
+                loss.accumulate_gradients(phase=phase.name, real_img=real_img, gen_z=gen_z, gain=phase.interval * num_gpus * phase.batch_gpu / batch_size, cur_nimg=cur_nimg, batch_idx=batch_idx)
             phase.module.requires_grad_(False)
 
             # Update weights.

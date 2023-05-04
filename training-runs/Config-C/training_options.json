@@ -1,0 +1,98 @@
+{
+  "G_kwargs": {
+    "class_name": "training.networks_baseline.Generator",
+    "NoiseDimension": 64,
+    "StageWidths": [
+      1536,
+      1536,
+      1536,
+      1536,
+      768,
+      384,
+      192
+    ],
+    "BlocksPerStage": [
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "CompressionFactor": 3,
+    "Cardinality": 4
+  },
+  "D_kwargs": {
+    "class_name": "training.networks_baseline.Discriminator",
+    "StageWidths": [
+      192,
+      384,
+      768,
+      1536,
+      1536,
+      1536,
+      1536
+    ],
+    "BlocksPerStage": [
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "CompressionFactor": 3,
+    "Cardinality": 4
+  },
+  "G_opt_kwargs": {
+    "class_name": "torch.optim.Adam",
+    "betas": [
+      0,
+      0.99
+    ],
+    "eps": 1e-08,
+    "lr": 0.0001
+  },
+  "D_opt_kwargs": {
+    "class_name": "torch.optim.Adam",
+    "betas": [
+      0,
+      0.99
+    ],
+    "eps": 1e-08,
+    "lr": 0.0001
+  },
+  "loss_kwargs": {
+    "class_name": "training.loss.StyleGAN2Loss",
+    "r1_gamma": 5.0
+  },
+  "data_loader_kwargs": {
+    "pin_memory": true,
+    "prefetch_factor": 2,
+    "num_workers": 3
+  },
+  "training_set_kwargs": {
+    "class_name": "training.dataset.ImageFolderDataset",
+    "path": "./datasets/ffhq-256x256.zip",
+    "use_labels": false,
+    "max_size": 70000,
+    "xflip": true,
+    "resolution": 256,
+    "random_seed": 0
+  },
+  "num_gpus": 1,
+  "batch_size": 64,
+  "batch_gpu": 8,
+  "metrics": [
+    "fid50k_full"
+  ],
+  "total_kimg": 25000,
+  "kimg_per_tick": 1,
+  "image_snapshot_ticks": 50,
+  "network_snapshot_ticks": 50,
+  "random_seed": 0,
+  "ema_kimg": 20.0,
+  "run_dir": "./training-runs\\00000-ffhq-256x256-gpus1-batch64-gamma5"
+}

@@ -1,0 +1,1 @@
+train.py --outdir=./training-runs --data=./datasets/ffhq-256x256.zip --gpus=1 --batch=64 --gamma=5 --glr=0.0001 --dlr=0.0001 --mirror=1 --aug=noaug --tick=1 --g-batch-gpu=8 --d-batch-gpu=8
