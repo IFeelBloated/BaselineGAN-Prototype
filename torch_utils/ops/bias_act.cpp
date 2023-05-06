@@ -74,7 +74,7 @@ static torch::Tensor bias_act(torch::Tensor x, torch::Tensor b, torch::Tensor xr
 
     // Choose CUDA kernel.
     void* kernel;
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(x.scalar_type(), "upfirdn2d_cuda", [&]
+    AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, x.scalar_type(), "upfirdn2d_cuda", [&]
     {
         kernel = choose_bias_act_kernel<scalar_t>(p);
     });

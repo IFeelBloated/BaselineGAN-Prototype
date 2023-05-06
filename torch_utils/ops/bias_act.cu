@@ -7,6 +7,7 @@
 // license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 #include <c10/util/Half.h>
+#include <c10/util/BFloat16.h>
 #include "bias_act.h"
 
 //------------------------------------------------------------------------
@@ -16,6 +17,7 @@ template <class T> struct InternalType;
 template <> struct InternalType<double>     { typedef double scalar_t; };
 template <> struct InternalType<float>      { typedef float  scalar_t; };
 template <> struct InternalType<c10::Half>  { typedef float  scalar_t; };
+template <> struct InternalType<c10::BFloat16>  { typedef float  scalar_t; };
 
 //------------------------------------------------------------------------
 // CUDA kernel.
@@ -169,5 +171,6 @@ template <class T> void* choose_bias_act_kernel(const bias_act_kernel_params& p)
 template void* choose_bias_act_kernel<double>       (const bias_act_kernel_params& p);
 template void* choose_bias_act_kernel<float>        (const bias_act_kernel_params& p);
 template void* choose_bias_act_kernel<c10::Half>    (const bias_act_kernel_params& p);
+template void* choose_bias_act_kernel<c10::BFloat16>    (const bias_act_kernel_params& p);
 
 //------------------------------------------------------------------------

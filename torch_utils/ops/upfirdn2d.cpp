@@ -60,7 +60,7 @@ static torch::Tensor upfirdn2d(torch::Tensor x, torch::Tensor f, int upx, int up
 
     // Choose CUDA kernel.
     upfirdn2d_kernel_spec spec;
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(x.scalar_type(), "upfirdn2d_cuda", [&]
+    AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, x.scalar_type(), "upfirdn2d_cuda", [&]
     {
         spec = choose_upfirdn2d_kernel<scalar_t>(p);
     });
