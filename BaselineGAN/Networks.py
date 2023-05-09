@@ -132,10 +132,10 @@ class Generator(nn.Module):
         MainLayers += [GeneratorStage(WidthPerStage[x], WidthPerStage[x + 1], CardinalityPerStage[x + 1], BlocksPerStage[x + 1], ExpansionFactor, KernelSize, ResamplingFilter) for x in range(len(WidthPerStage) - 1)]
         
         # temp workaround for mixed precision training
-        MainLayers[-1].DataType = torch.bfloat16
-        MainLayers[-2].DataType = torch.bfloat16
-        MainLayers[-3].DataType = torch.bfloat16
-        MainLayers[-4].DataType = torch.bfloat16
+        MainLayers[-1].DataType = torch.float16
+        MainLayers[-2].DataType = torch.float16
+        MainLayers[-3].DataType = torch.float16
+        MainLayers[-4].DataType = torch.float16
         
         self.MainLayers = nn.ModuleList(MainLayers)
         self.AggregationLayer = Convolution(WidthPerStage[-1], 3, KernelSize=1)
@@ -154,10 +154,10 @@ class Discriminator(nn.Module):
         MainLayers += [DiscriminatorStage(WidthPerStage[-1], 1, CardinalityPerStage[-1], BlocksPerStage[-1], ExpansionFactor, KernelSize)]
         
         # temp workaround for mixed precision training
-        MainLayers[0].DataType = torch.bfloat16
-        MainLayers[1].DataType = torch.bfloat16
-        MainLayers[2].DataType = torch.bfloat16
-        MainLayers[3].DataType = torch.bfloat16
+        MainLayers[0].DataType = torch.float16
+        MainLayers[1].DataType = torch.float16
+        MainLayers[2].DataType = torch.float16
+        MainLayers[3].DataType = torch.float16
         
         self.ExtractionLayer = Convolution(3, WidthPerStage[0], KernelSize=1)
         self.MainLayers = nn.ModuleList(MainLayers)

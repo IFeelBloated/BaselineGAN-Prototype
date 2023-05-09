@@ -224,6 +224,8 @@ def main(**kwargs):
     
     
     c.loss_kwargs.r1_gamma = opts.gamma
+    c.loss_kwargs.blur_init_sigma = 10 # Blur the images seen by the discriminator.
+    c.loss_kwargs.blur_fade_kimg = c.batch_size * 200 / 32 # Fade out the blur during the first N kimg.
     
     c.G_opt_kwargs.lr = opts.glr
     c.D_opt_kwargs.lr = opts.dlr

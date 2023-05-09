@@ -284,7 +284,7 @@ def training_loop(
             phase.opt.zero_grad(set_to_none=True)
             phase.module.requires_grad_(True)
             for real_img, gen_z in zip(phase_real_img, phase_gen_z):
-                loss.accumulate_gradients(phase=phase.name, real_img=real_img, gen_z=gen_z, gain=phase.interval * num_gpus * phase.batch_gpu / batch_size, cur_nimg=cur_nimg, batch_idx=batch_idx)
+                loss.accumulate_gradients(phase=phase.name, real_img=real_img, gen_z=gen_z, gain=phase.interval * num_gpus * phase.batch_gpu / batch_size, cur_nimg=cur_nimg)
             phase.module.requires_grad_(False)
 
             # Update weights.
