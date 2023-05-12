@@ -106,6 +106,7 @@ def training_loop(
     d_batch_gpu             = 4,        # Number of samples processed at a time by one GPU.
     ema_kimg                = 10,       # Half-life of the exponential moving average (EMA) of generator weights.
     ema_rampup              = 0.05,     # EMA ramp-up coefficient. None = no rampup.
+    lr_rampup_kimg          = 500,      # Learning rate ramp-up duration.
     G_reg_interval          = None,     # How often to perform regularization for G? None = disable lazy regularization.
     D_reg_interval          = None,     # How often to perform regularization for D? None = disable lazy regularization.
     augment_p               = 0,        # Initial value of augmentation probability.
@@ -194,10 +195,10 @@ def training_loop(
     phases = []
     
     opt = dnnlib.util.construct_class_by_name(params=D.parameters(), **D_opt_kwargs)
-    phases += [dnnlib.EasyDict(name='D', module=D, opt=opt, interval=1, shift=0, batch_gpu=d_batch_gpu)]
+    phases += [dnnlib.EasyDict(name='D', module=D, opt=opt, interval=1, shift=0, batch_gpu=d_batch_gpu, lr=D_opt_kwargs['lr'])]
     
     opt = dnnlib.util.construct_class_by_name(params=G.parameters(), **G_opt_kwargs)
-    phases += [dnnlib.EasyDict(name='G', module=G, opt=opt, interval=1, shift=0, batch_gpu=g_batch_gpu)]
+    phases += [dnnlib.EasyDict(name='G', module=G, opt=opt, interval=1, shift=0, batch_gpu=g_batch_gpu, lr=G_opt_kwargs['lr'])]
     
     for phase in phases:
         phase.start_event = None
@@ -287,6 +288,11 @@ def training_loop(
                 loss.accumulate_gradients(phase=phase.name, real_img=real_img, gen_z=gen_z, gain=phase.interval * num_gpus * phase.batch_gpu / batch_size, cur_nimg=cur_nimg)
             phase.module.requires_grad_(False)
 
+            lr = phase.lr * min(cur_nimg / max(lr_rampup_kimg * 1000, 1e-8), 1)
+            training_stats.report('Optimizer/' + phase.name + 'lr', lr)
+            for g in phase.opt.param_groups:
+                g['lr'] = lr
+        
             # Update weights.
             with torch.autograd.profiler.record_function(phase.name + '_opt'):
                 params = [param for param in phase.module.parameters() if param.grad is not None]
@@ -295,7 +301,6 @@ def training_loop(
                     if num_gpus > 1:
                         torch.distributed.all_reduce(flat)
                         flat /= num_gpus
-                    misc.nan_to_num(flat, nan=0, posinf=1e5, neginf=-1e5, out=flat)
                     grads = flat.split([param.numel() for param in params])
                     for param, grad in zip(params, grads):
                         param.grad = grad.reshape(param.shape)
