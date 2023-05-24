@@ -28,7 +28,7 @@ class ResidualBlock(nn.Module):
         
         ExpandedChannels = InputChannels * ExpansionFactor
         
-        self.LinearLayer1 = Convolution(InputChannels, ExpandedChannels, KernelSize=1, ActivationGain=BiasedActivation.Gain)
+        self.LinearLayer1 = Convolution(InputChannels, ExpandedChannels, KernelSize=1, ActivationGain=0.1 * BiasedActivation.Gain)
         self.LinearLayer2 = Convolution(ExpandedChannels, ExpandedChannels, KernelSize=KernelSize, Groups=Cardinality, ActivationGain=BiasedActivation.Gain)
         self.LinearLayer3 = Convolution(ExpandedChannels, InputChannels, KernelSize=1, ActivationGain=0)
         
@@ -76,21 +76,37 @@ class GenerativeBasis(nn.Module):
     def __init__(self, InputDimension, OutputChannels):
         super(GenerativeBasis, self).__init__()
         
+        self.LinearLayer1 = MSRInitializer(nn.Linear(InputDimension, OutputChannels, bias=False), ActivationGain=BiasedActivation.Gain)
+        self.LinearLayer2 = MSRInitializer(nn.Linear(OutputChannels, OutputChannels, bias=False), ActivationGain=BiasedActivation.Gain)
+        
+        self.NonLinearity1 = BiasedActivation(OutputChannels)
+        self.NonLinearity2 = BiasedActivation(OutputChannels)
+        
         self.Basis = nn.Parameter(torch.empty(OutputChannels, 4, 4).normal_(0, 1))
-        self.LinearLayer = MSRInitializer(nn.Linear(InputDimension, OutputChannels, bias=False))
+        self.ModulationLayer = MSRInitializer(nn.Linear(OutputChannels, OutputChannels, bias=False))
         
     def forward(self, x):
-        return self.Basis.view(1, -1, 4, 4) * self.LinearLayer(x).view(x.shape[0], -1, 1, 1)
+        x = self.NonLinearity1(self.LinearLayer1(x))
+        x = self.NonLinearity2(self.LinearLayer2(x))
+        
+        return self.Basis.view(1, -1, 4, 4) * self.ModulationLayer(x).view(x.shape[0], -1, 1, 1)
     
 class DiscriminativeBasis(nn.Module):
     def __init__(self, InputChannels, OutputDimension):
         super(DiscriminativeBasis, self).__init__()
         
         self.Basis = MSRInitializer(nn.Conv2d(InputChannels, InputChannels, kernel_size=4, stride=1, padding=0, groups=InputChannels, bias=False))
-        self.LinearLayer = MSRInitializer(nn.Linear(InputChannels, OutputDimension, bias=False))
+        
+        self.LinearLayer1 = MSRInitializer(nn.Linear(InputChannels, InputChannels, bias=False), ActivationGain=BiasedActivation.Gain)
+        self.LinearLayer2 = MSRInitializer(nn.Linear(InputChannels, OutputDimension, bias=False))
+        
+        self.NonLinearity = BiasedActivation(InputChannels)
         
     def forward(self, x):
-        return self.LinearLayer(self.Basis(x).view(x.shape[0], -1))
+        x = self.Basis(x).view(x.shape[0], -1)
+        x = self.NonLinearity(self.LinearLayer1(x))
+        
+        return self.LinearLayer2(x)
     
 class GeneratorStage(nn.Module):
     def __init__(self, InputChannels, OutputChannels, Cardinality, NumberOfBlocks, ExpansionFactor, KernelSize, ResamplingFilter=None, DataType=torch.float32):
