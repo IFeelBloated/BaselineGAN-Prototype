@@ -55,8 +55,7 @@ def subprocess_fn(rank, args, temp_dir):
     G = copy.deepcopy(args.G).eval().requires_grad_(False).to(device)
     if rank == 0 and args.verbose:
         z = torch.empty([1, G.z_dim], device=device)
-        c = torch.empty([1, G.c_dim], device=device)
-        misc.print_module_summary(G, [z, c])
+        misc.print_module_summary(G, [z])
 
     # Calculate each metric.
     for metric in args.metrics:
@@ -153,8 +152,8 @@ def calc_metrics(ctx, network_pkl, metrics, data, mirror, gpus, verbose):
         ctx.fail('Could not look up dataset options; please specify --data')
 
     # Finalize dataset options.
-    args.dataset_kwargs.resolution = args.G.img_resolution
-    args.dataset_kwargs.use_labels = (args.G.c_dim != 0)
+    args.dataset_kwargs.resolution = 256 #args.G.img_resolution
+    args.dataset_kwargs.use_labels = False
     if mirror is not None:
         args.dataset_kwargs.xflip = mirror
 

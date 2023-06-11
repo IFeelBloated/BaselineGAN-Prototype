@@ -1,0 +1,3 @@
+calc_metrics.py --network=./network-snapshot-001587.pkl --metrics=fid50k_full,pr50k3_full
+
+train.py --outdir=./training-runs --data=./datasets/ffhq-256x256.zip --gpus=1 --batch=256 --gamma=50 --glr=1e-4 --dlr=1e-4 --mirror=1 --aug=noaug --tick=1 --g-batch-gpu=8 --d-batch-gpu=8
