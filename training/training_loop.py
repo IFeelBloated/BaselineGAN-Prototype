@@ -25,7 +25,6 @@ from torch_utils.ops import conv2d_gradfix
 from torch_utils.ops import grid_sample_gradfix
 
 import legacy
-import tensorflow_io
 from metrics import metric_main
 
 def cosine_decay_with_warmup(cur_nimg, base_value, total_nimg, final_value=0.0, warmup_value=0.0, warmup_nimg=0, hold_base_value_nimg=0):
@@ -185,7 +184,8 @@ def training_loop(
 
     # Resume from existing pickle.
     if resume_pkl is not None:
-        with dnnlib.util.open_url(resume_pkl) as f:
+        #with dnnlib.util.open_url(resume_pkl) as f:
+        with fsspec.open(resume_pkl) as f:
             resume_data = legacy.load_network_pkl(f)
         if rank == 0:
             print(f'Resuming from "{resume_pkl}"')
@@ -268,6 +268,7 @@ def training_loop(
         stats_jsonl = fsspec.open(os.path.join(run_dir, 'stats.jsonl'), 'wt').open()
         #stats_jsonl = None # TODO fix.
         try:
+            import tensorflow_io
             import torch.utils.tensorboard as tensorboard
             stats_tfevents = tensorboard.SummaryWriter(run_dir)
         except ImportError as err:

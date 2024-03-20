@@ -51,6 +51,41 @@ def subprocess_fn(rank, c, temp_dir):
 
 #----------------------------------------------------------------------------
 
+def load_latest_checkpoint(directory_path):
+    """
+    Load the latest checkpoint from a specified directory using a filename pattern.
+    This function is designed to work with any fsspec-compatible file system.
+
+    Args:
+    directory_path (str): The URLpath to the directory containing the checkpoint files.
+                          It should include the protocol prefix (e.g., 's3://', 'file://').
+
+    Returns:
+    The path of the latest checkpoint file.
+    """
+    # Infer the appropriate filesystem from the given directory_path
+    fs, _, paths = fsspec.get_fs_token_paths(directory_path)
+    
+    directory = paths[0]
+    
+    # Construct a glob pattern for the checkpoint files
+    pattern = os.path.join(directory, "network-snapshot-*.pkl")
+
+    # Use glob to find all files matching the pattern
+    checkpoints = fs.glob(pattern)
+
+    # If no checkpoints are found, return None
+    if not checkpoints:
+        print("No checkpoint files found.")
+        return None
+
+    # Sort the checkpoints to find the latest one
+    # This step assumes that the filenames contain sortable timestamps or indices
+    latest_checkpoint = sorted(checkpoints)[-1]
+
+    # Return the latest checkpoint path
+    return f"{fs.protocol[0]}://{latest_checkpoint}"
+
 def launch_training(c, desc, outdir, dry_run):
     dnnlib.util.Logger(should_flush=True)
     
@@ -64,7 +99,10 @@ def launch_training(c, desc, outdir, dry_run):
         c.run_dir = os.path.join(outdir, f'{cur_run_id:05d}-{desc}')
     else:
         c.run_dir = outdir
-        
+        c.resume_pkl = load_latest_checkpoint(outdir)
+        print(f'Autoresuming from : {c.resume_pkl}')
+
+        #print(c.resume_pkl)
         #assert not os.path.exists(c.run_dir)
 
     # Print options.

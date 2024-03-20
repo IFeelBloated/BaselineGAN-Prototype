@@ -5,6 +5,6 @@ gdown
 click
 psutil
 setuptools
-tensorflow_io[tensorflow]
+tensorflow_io[tensorflow-cpu]
 s3fs
 scipy
