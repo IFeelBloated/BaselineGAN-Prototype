@@ -428,6 +428,7 @@ class AugmentPipe(torch.nn.Module):
             coord_y = torch.arange(height, device=device).reshape([1, 1, -1, 1])
             mask_x = (((coord_x + 0.5) / width - center[:, 0]).abs() >= size[:, 0] / 2)
             mask_y = (((coord_y + 0.5) / height - center[:, 1]).abs() >= size[:, 1] / 2)
+            mask_x, mask_y = torch.broadcast_tensors(mask_x, mask_y)
             mask = torch.logical_or(mask_x, mask_y).to(torch.float32)
             images = images * mask
 
