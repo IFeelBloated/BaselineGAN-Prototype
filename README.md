@@ -26,7 +26,7 @@ Model checkpoint: *placeholder*
 
 Training command:
 ```
-python train.py --outdir=./training-runs --data=./datasets/cifar10.zip --gpus=8 --batch=512 --mirror=1 --aug=ada --cond=1 --preset=cifar --tick=1 --snap=200
+python train.py --outdir=./training-runs --data=./datasets/cifar10.zip --gpus=8 --batch=512 --mirror=1 --aug=1 --cond=1 --preset=cifar --tick=1 --snap=200
 ```
 
 *placeholder*

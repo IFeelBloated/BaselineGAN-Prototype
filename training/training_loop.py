@@ -124,7 +124,7 @@ def training_loop(
     G_opt_kwargs            = {},       # Options for generator optimizer.
     D_opt_kwargs            = {},       # Options for discriminator optimizer.
     lr_scheduler            = None,
-    beta_scheduler          = None,
+    beta2_scheduler         = None,
     augment_kwargs          = None,     # Options for augmentation pipeline. None = disable.
     loss_kwargs             = {},       # Options for loss function.
     gamma_scheduler         = None,
@@ -136,9 +136,7 @@ def training_loop(
     g_batch_gpu             = 4,        # Number of samples processed at a time by one GPU.
     d_batch_gpu             = 4,        # Number of samples processed at a time by one GPU.
     ema_scheduler           = None,
-    augment_p               = 0,        # Initial value of augmentation probability.
-    ada_scheduler           = None,
-    ada_kimg                = 500,      # ADA adjustment speed, measured in how many kimg it takes for p to increase/decrease by one unit.
+    aug_scheduler           = None,
     total_kimg              = 25000,    # Total length of the training, measured in thousands of real images.
     kimg_per_tick           = 4,        # Progress snapshot interval.
     image_snapshot_ticks    = 50,       # How often to save image snapshots? None = disable.
@@ -200,20 +198,14 @@ def training_loop(
     if rank == 0:
         print('Setting up augmentation...')
     augment_pipe = None
-    ada_stats = None
-    if (augment_kwargs is not None) and (augment_p > 0 or ada_scheduler is not None):
-        augment_pipe = dnnlib.util.construct_class_by_name(**augment_kwargs).train().requires_grad_(False).to(device) # subclass of torch.nn.Module
-        augment_pipe.p.copy_(torch.as_tensor(augment_p))
-        if ada_scheduler is not None:
-            ada_stats = training_stats.Collector(regex='Loss/signs/real')
-    if (resume_pkl is not None) and (rank == 0):
-        if augment_pipe is not None and resume_data['augment_pipe'] is not None:
-            misc.copy_params_and_buffers(resume_data['augment_pipe'], augment_pipe, require_all=False)
 
+    if (augment_kwargs is not None) and (aug_scheduler is not None):
+        augment_pipe = dnnlib.util.construct_class_by_name(**augment_kwargs).train().requires_grad_(False).to(device) # subclass of torch.nn.Module
+        
     # Distribute across GPUs.
     if rank == 0:
         print(f'Distributing across {num_gpus} GPUs...')
-    for module in [G, D, G_ema, augment_pipe]:
+    for module in [G, D, G_ema]:
         if module is not None and num_gpus > 1:
             for param in misc.params_and_buffers(module):
                 torch.distributed.broadcast(param, src=0)
@@ -313,10 +305,13 @@ def training_loop(
             all_gen_z += [G_z.detach().clone().split(g_batch_gpu)]
             
         cur_lr = cosine_decay_with_warmup(cur_nimg, **lr_scheduler)
-        cur_beta2 = cosine_decay_with_warmup(cur_nimg, **beta_scheduler)
+        cur_beta2 = cosine_decay_with_warmup(cur_nimg, **beta2_scheduler)
         cur_gamma = cosine_decay_with_warmup(cur_nimg, **gamma_scheduler)
-        ema_nimg = cosine_decay_with_warmup(cur_nimg, **ema_scheduler)
-        ada_target = cosine_decay_with_warmup(cur_nimg, **ada_scheduler)
+        cur_ema_nimg = cosine_decay_with_warmup(cur_nimg, **ema_scheduler)
+        cur_aug_p = cosine_decay_with_warmup(cur_nimg, **aug_scheduler)
+        
+        if augment_pipe is not None:
+            augment_pipe.p.copy_(misc.constant(cur_aug_p, device=device))
         
         # Execute training phases.
         for phase, phase_gen_z, phase_real_img, phase_real_c in zip(phases, all_gen_z, all_real_img, all_real_c):
@@ -353,7 +348,7 @@ def training_loop(
 
         # Update G_ema.
         with torch.autograd.profiler.record_function('Gema'):
-            ema_beta = 0.5 ** (batch_size / max(ema_nimg, 1e-8))
+            ema_beta = 0.5 ** (batch_size / max(cur_ema_nimg, 1e-8))
             for p_ema, p in zip(G_ema.parameters(), G.parameters()):
                 p_ema.copy_(p.lerp(p_ema, ema_beta))
             for b_ema, b in zip(G_ema.buffers(), G.buffers()):
@@ -362,12 +357,6 @@ def training_loop(
         # Update state.
         cur_nimg += batch_size
         batch_idx += 1
-
-        # Execute ADA heuristic.
-        if ada_stats is not None:
-            ada_stats.update()
-            adjust = np.sign(ada_stats['Loss/signs/real'] - ada_target) * batch_size / (ada_kimg * 1000)
-            augment_pipe.p.copy_((augment_pipe.p + adjust).max(misc.constant(0, device=device)))
 
         # Perform maintenance tasks once per tick.
         done = (cur_nimg >= total_kimg * 1000)
@@ -389,8 +378,7 @@ def training_loop(
         torch.cuda.reset_peak_memory_stats()
         fields += [f"augment {training_stats.report0('Progress/augment', float(augment_pipe.p.cpu()) if augment_pipe is not None else 0):.3f}"]
         training_stats.report0('Progress/lr', cur_lr)
-        training_stats.report0('Progress/ema_kimg', ema_nimg / 1e3)
-        training_stats.report0('Progress/ada_target', ada_target)
+        training_stats.report0('Progress/ema_mimg', cur_ema_nimg / 1e6)
         training_stats.report0('Progress/beta2', cur_beta2)
         training_stats.report0('Progress/gamma', cur_gamma)
         training_stats.report0('Timing/total_hours', (tick_end_time - start_time) / (60 * 60))
@@ -414,7 +402,7 @@ def training_loop(
         snapshot_pkl = None
         snapshot_data = None
         if (network_snapshot_ticks is not None) and (done or cur_tick % network_snapshot_ticks == 0):
-            snapshot_data = dict(G=G, D=D, G_ema=G_ema, augment_pipe=augment_pipe, training_set_kwargs=dict(training_set_kwargs), cur_nimg=cur_nimg)
+            snapshot_data = dict(G=G, D=D, G_ema=G_ema, training_set_kwargs=dict(training_set_kwargs), cur_nimg=cur_nimg)
             for phase in phases:
                 snapshot_data[phase.name + '_opt_state'] = remap_optimizer_state_dict(phase.opt.state_dict(), 'cpu')
             for key, value in snapshot_data.items():
