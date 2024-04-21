@@ -10,7 +10,7 @@ Our code base is built on top of [stylegan3](https://github.com/NVlabs/stylegan3
 
 Training command:
 ```
-*placeholder*
+python train.py --outdir=./training-runs --data=./datasets/ffhq-256x256.zip --gpus=8 --batch=256 --mirror=1 --aug=1 --preset=FFHQ256 --tick=1 --snap=200
 ```
 
 Model checkpoint: *placeholder*

@@ -184,6 +184,13 @@ def main(**kwargs):
         NoiseDimension = 64
         
         ema_nimg = 500 * 1000
+        decay_nimg = 2e7
+        
+        c.ema_scheduler = { 'base_value': 0, 'final_value': ema_nimg, 'total_nimg': decay_nimg }
+        c.aug_scheduler = { 'base_value': 0, 'final_value': 0.3, 'total_nimg': decay_nimg }
+        c.lr_scheduler = { 'base_value': 2e-4, 'final_value': 5e-5, 'total_nimg': decay_nimg }
+        c.gamma_scheduler = { 'base_value': 100, 'final_value': 10, 'total_nimg': decay_nimg }
+        c.beta_scheduler = { 'base_value': 0.9, 'final_value': 0.999, 'total_nimg': decay_nimg }
         
     if opts.preset == 'cifar':
         WidthPerStage = [3 * x // 4 for x in [1024, 1024, 1024, 1024]]
