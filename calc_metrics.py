@@ -15,6 +15,8 @@ import tempfile
 import copy
 import torch
 
+from pathlib import Path
+
 import dnnlib
 import legacy
 from metrics import metric_main
@@ -24,6 +26,64 @@ from torch_utils import custom_ops
 from torch_utils import misc
 from torch_utils.ops import conv2d_gradfix
 
+import dill
+import numpy as np
+import scipy
+
+#from metrics import metric_utils
+from clip import CLIP
+
+def build_clip(url: str) -> None:
+    #lip = CLIP('ViT-g-14', pretrained='laion2b_s12b_b42k')
+    clip = CLIP(name='ViT-B/32', pretrained='openai')
+    Path(url).parent.mkdir(parents=True, exist_ok=True)
+    with open(url, 'wb') as f:
+        dill.dump(clip, f)
+
+def compute_clip_fid(opts, max_real: int, num_gen: int) -> float:
+    # Direct TorchScript translation of http://download.tensorflow.org/models/image/imagenet/inception-2015-12-05.tgz
+    #detector_url = 'https://api.ngc.nvidia.com/v2/models/nvidia/research/stylegan3/versions/1/files/metrics/inception-2015-12-05.pkl'
+    #detector_kwargs = dict(return_features=True) # Return raw features before the softmax layer.
+    cache_dir = dnnlib.make_cache_dir_path('detectors')
+    #/detector_url = os.path.join(cache_dir, 'clipvitg14.pkl')
+    detector_url = os.path.join(cache_dir, 'clipvitb32.pkl')
+    detector_kwargs = {'texts': None, 'div255': True}
+
+    # If it does not exist, build and save CLIP.
+    if not os.path.exists(detector_url) and opts.rank == 0:
+        build_clip(detector_url)
+
+    if opts.rank == 0:
+        print(f"detector_url: {detector_url}")
+
+
+    mu_real, sigma_real = metric_utils.compute_feature_stats_for_dataset(
+        opts=opts, detector_url=detector_url, detector_kwargs=detector_kwargs,
+        rel_lo=0, rel_hi=0, capture_mean_cov=True, max_items=max_real).get_mean_cov()
+
+    mu_gen, sigma_gen = metric_utils.compute_feature_stats_for_generator(
+        opts=opts, detector_url=detector_url, detector_kwargs=detector_kwargs,
+        rel_lo=0, rel_hi=1, capture_mean_cov=True, max_items=num_gen).get_mean_cov()
+
+    if opts.rank != 0:
+        return float('nan')
+
+    m = np.square(mu_gen - mu_real).sum()
+    s, _ = scipy.linalg.sqrtm(np.dot(sigma_gen, sigma_real), disp=False) # pylint: disable=no-member
+    fid = np.real(m + np.trace(sigma_gen + sigma_real - s * 2))
+    return float(fid)
+
+@metric_main.register_metric
+def clip_fid50k_full(opts):
+    opts.dataset_kwargs.update(max_size=None, xflip=False)
+    fid = compute_clip_fid(opts, max_real=None, num_gen=50000)
+    return dict(fid50k_full=fid)
+
+@metric_main.register_metric
+def clip_fid10k_full(opts):
+    opts.dataset_kwargs.update(max_size=None, xflip=False)
+    fid = compute_clip_fid(opts, max_real=None, num_gen=10000)
+    return dict(fid10k_full=fid)
 #----------------------------------------------------------------------------
 
 def subprocess_fn(rank, args, temp_dir):
