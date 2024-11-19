@@ -69,7 +69,7 @@ def report_metric(result_dict, run_dir=None, snapshot_pkl=None):
     metric = result_dict['metric']
     assert is_valid_metric(metric)
     if run_dir is not None and snapshot_pkl is not None:
-        snapshot_pkl = snapshot_pkl[len(run_dir)+1:len(snapshot_pkl)] #os.path.relpath(snapshot_pkl, run_dir)
+        snapshot_pkl = os.path.relpath(snapshot_pkl, run_dir)
 
     jsonl_line = json.dumps(dict(result_dict, snapshot_pkl=snapshot_pkl, timestamp=time.time()))
     print(jsonl_line)
